@@ -1,0 +1,20 @@
+plugins {
+    id "java"
+}
+
+repositories {
+    jcenter()
+}
+
+dependencies {
+    implementation 'org.mongodb:mongo-java-driver:3.12.5'
+    implementation 'edu.ucar:netcdf4:4.5.5'
+    implementation 'info.picocli:picocli:4.6.1'
+}
+
+task copyDependencies(type: Copy) {
+    from configurations.runtimeClasspath
+    into file("$buildDir/libs")
+}
+
+build.dependsOn copyDependencies
