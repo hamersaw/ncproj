@@ -15,6 +15,7 @@ import ucar.nc2.NetcdfFile;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -30,8 +31,8 @@ public class Index implements Callable<Integer> {
         description = "mongodb geometry collection")
     private String mongoCollection;
 
-    @Parameters(index = "2..*", description = "netcdf files")
-    private File[] files;
+    @Parameters(index = "2", description = "netcdf file")
+    private File netcdfFile;
 
     @Option(names = {"-i", "--indexing-threads"},
         description = "number of threads for indexing the netcdf file")
@@ -49,7 +50,8 @@ public class Index implements Callable<Integer> {
         HashMap<String, ArrayList<int[]>> indexMap = new HashMap();
 
         // open first netcdf file
-        NetcdfFile netcdfFile = NetcdfFile.open(this.files[0].getPath());
+        NetcdfFile netcdfFile =
+            NetcdfFile.open(this.netcdfFile.getPath());
 
         Array latitudeArray = netcdfFile.findVariable("lat").read();
         Array longitudeArray = netcdfFile.findVariable("lon").read();
@@ -78,9 +80,7 @@ public class Index implements Callable<Integer> {
 
         // add all index pairs to indexing queue
         for (int i = 0; i < latitudeArray.getSize(); i++) {
-        //for (int i = 0; i < 250; i++) {
             for (int j = 0; j < longitudeArray.getSize(); j++) {
-            //for (int j = 0; j < 250; j++) {
 				queue.add(new int[]{i, j});
 				count.incrementAndGet();
 			}
@@ -95,6 +95,16 @@ public class Index implements Callable<Integer> {
 		for (Thread indexingThread : indexingThreads) {
 			indexingThread.interrupt();
 		}
+
+        // write index to stdout
+        for (Map.Entry<String, ArrayList<int[]>> entry :
+                indexMap.entrySet()) {
+            System.out.print(entry.getKey());
+            for (int[] values : entry.getValue()) {
+                System.out.print(" " + values[0] + ":" + values[1]);
+            }
+            System.out.println("");
+        }
 
         return 0;
     }
