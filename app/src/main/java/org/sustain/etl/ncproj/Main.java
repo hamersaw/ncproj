@@ -2,12 +2,13 @@ package org.sustain.etl.ncproj;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 
 import java.util.concurrent.Callable;
 
 @Command(name = "ncproj", mixinStandardHelpOptions = true,
     description = "project geometries onto netcdf data",
-    subcommands = { Index.class })
+    subcommands = { DumpCommand.class, IndexCommand.class })
 public class Main implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {

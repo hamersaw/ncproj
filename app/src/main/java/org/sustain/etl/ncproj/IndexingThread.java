@@ -53,8 +53,10 @@ public class IndexingThread implements Runnable {
     public void run() {
         try {
             while (true) {
+                // retrieve next index
                 int[] datum = queue.take();
 
+                // compute latitude and longitude bounds
                 float latitude =
                     latitudeArray.getFloat(datum[0]);
                 float longitude =
@@ -66,18 +68,21 @@ public class IndexingThread implements Runnable {
                     {longitude + longitudeDelta, latitude},
                     {longitude, latitude}}};
 
+                // construct mongodb query object
                 BasicDBObject query = new BasicDBObject("geometry",
                     new BasicDBObject("$geoIntersects",
                     new BasicDBObject("$geometry",
                         new BasicDBObject("type", "Polygon")
                             .append("coordinates", coordinates))));
 
+                // iterate over query results
                 FindIterable<Document> documents =
                     mongoCollection.find(query);
 
                 for (Document document : documents) {
                     String gisJoin = (String) document.get("gis_join");
 
+                    // add index coordinates to index map
                     this.rwLock.writeLock().lock();
                     try {
                         ArrayList<int[]> list = null;

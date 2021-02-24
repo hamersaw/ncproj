@@ -22,8 +22,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 @Command(name = "index", mixinStandardHelpOptions = true,
-    description = "compute grid index")
-public class Index implements Callable<Integer> {
+    description = "compute shape to grid index")
+public class IndexCommand implements Callable<Integer> {
     @Parameters(index = "0", description = "mongodb geometry database")
     private String mongoDatabase;
 
@@ -39,10 +39,10 @@ public class Index implements Callable<Integer> {
     private short indexThreads = 8;
 
     @Option(names = {"-o", "--host"}, description = "mongodb host")
-    private String mongoHost = "127.0.0.1";
+    protected static String mongoHost = "127.0.0.1";
 
     @Option(names = {"-p", "--port"}, description = "mongodb port")
-    private int mongoPort = 27017;
+    protected static int mongoPort = 27017;
 
     @Override
     public Integer call() throws Exception {
