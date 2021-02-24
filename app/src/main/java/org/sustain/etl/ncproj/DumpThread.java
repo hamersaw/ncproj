@@ -17,30 +17,33 @@ public class DumpThread implements Runnable {
     protected HashMap<String, ArrayList<int[]>> indexMap;
     protected LinkedBlockingQueue<DumpOperand> queue;
     protected ReentrantReadWriteLock rwLock;
+    protected long[] timeArray;
 
     public DumpThread(ArrayList<Array> buffer, AtomicLong count,
             ArrayList<Float> fillValues,
             HashMap<String, ArrayList<int[]>> indexMap,
             LinkedBlockingQueue<DumpOperand> queue,
-            ReentrantReadWriteLock rwLock) {
+            ReentrantReadWriteLock rwLock, long[] timeArray) {
         this.buffer = buffer;
         this.count = count;
         this.fillValues = fillValues;
         this.indexMap = indexMap;
         this.queue = queue;
         this.rwLock = rwLock;
+        this.timeArray = timeArray;
     }
 
     @Override
     public void run() {
         try {
             while (true) {
-                // retrieve next index
+                // retrieve next operand
                 DumpOperand operand = queue.take();
 
-                // TODO - fix time offset, get actual timestamp value
+                int timeIndex = operand.getTimeOffset()
+                    + operand.getTimeIndex()
                 String line = operand.getShapeId()
-                    + "," + operand.getTimeOffset();
+                    + "," + timeArray[timeIndex];
 
                 this.rwLock.readLock().lock();
                 try {
@@ -59,7 +62,7 @@ public class DumpThread implements Runnable {
                         float max = -Float.MAX_VALUE;
                         for (int[] coordinates : indices) {
                             // identify index value
-                            int arrayIndex = (operand.getTimeOffset() 
+                            int arrayIndex = (operand.getTimeIndex() 
                                     * shape[1] * shape[2])
                                 + (coordinates[0] * shape[2])
                                 + coordinates[1];

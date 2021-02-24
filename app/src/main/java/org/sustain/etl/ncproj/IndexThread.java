@@ -54,13 +54,13 @@ public class IndexThread implements Runnable {
         try {
             while (true) {
                 // retrieve next index
-                int[] datum = queue.take();
+                int[] operand = queue.take();
 
                 // compute latitude and longitude bounds
                 float latitude =
-                    latitudeArray.getFloat(datum[0]);
+                    latitudeArray.getFloat(operand[0]);
                 float longitude =
-                    longitudeArray.getFloat(datum[1]) - 360;
+                    longitudeArray.getFloat(operand[1]) - 360;
 
                 float[][][] coordinates = {{{longitude, latitude},
                     {longitude, latitude + latitudeDelta},
@@ -93,7 +93,7 @@ public class IndexThread implements Runnable {
                             list = this.indexMap.get(gisJoin);
                         }
 
-                        list.add(datum);
+                        list.add(operand);
                     } finally {
                         this.rwLock.writeLock().unlock();
                     }

@@ -14,6 +14,8 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.lang.Math;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -32,6 +34,10 @@ public class DumpCommand implements Callable<Integer> {
     @Parameters(index = "1..*", description = "netcdf files")
     private File[] netcdfFiles;
 
+    @Option(names = {"-n", "--no-header"}, negatable = true,
+        description = "do not print csv header")
+    private boolean printHeader = true;
+
     @Option(names = {"-b", "--buffer-size"},
         description = "time buffer size")
     private int bufferSize = 50;
@@ -42,10 +48,6 @@ public class DumpCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
-        /**
-         * parse grid index file
-         */
-
         // open grid index file
         FileReader fileIn = new FileReader(this.indexFile);
         BufferedReader in = new BufferedReader(fileIn);
@@ -76,13 +78,10 @@ public class DumpCommand implements Callable<Integer> {
         in.close();
         fileIn.close();
 
-        /**
-         * identify netcdf variables
-         */
-
+        // identify netcdf variables
         ArrayList<ArrayList<String>> variables = new ArrayList();
         ArrayList<Float> fillValues = new ArrayList();
-        Array timeArray = null;
+        long[] timeArray = null;
         int latitudeLength = 0;
         int longitudeLength = 0;
 
@@ -94,7 +93,16 @@ public class DumpCommand implements Callable<Integer> {
             if (timeArray == null) {
                 Variable timeVariable = netcdfFile.findVariable("time");
                 // TODO - test if variable is null
-                timeArray = timeVariable.read();
+                Array timeVariableArray = timeVariable.read();
+
+                timeArray = new long[(int) timeVariableArray.getSize()];
+                LocalDateTime dateTime =
+                    LocalDateTime.of(1900, 1, 1, 0, 0, 0);
+                for (int i = 0; i < timeArray.length; i++) {
+                    timeArray[i] = dateTime
+                        .plusDays(timeVariableArray.getInt(i))
+                        .toEpochSecond(ZoneOffset.UTC);
+                }
 
                 Variable latVariable = netcdfFile.findVariable("lat");
                 // TODO - test if variable is null
@@ -126,10 +134,19 @@ public class DumpCommand implements Callable<Integer> {
             variables.add(arrayList);
         }
 
-        /**
-         * start worker threads
-         */
+        // print csv header
+        if (this.printHeader) {
+            System.out.print("gis_join,timestamp");
+            for (ArrayList<String> arrayList : variables) {
+                for (String variable : arrayList) {
+                    System.out.print(",min_" + variable
+                        + ",max_" + variable);
+                }
+            }
+            System.out.println("");
+        }
 
+        // start worker threads
         ArrayList<Array> buffer = new ArrayList();
 		AtomicLong count = new AtomicLong(0);
 		ArrayList<Thread> workerThreads = new ArrayList();
@@ -138,22 +155,22 @@ public class DumpCommand implements Callable<Integer> {
         ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
 
 		for (int i = 0; i < this.threadCount; i++) {
-            Thread workerThread = new Thread(new DumpThread(
-                buffer, count, fillValues, indexMap, queue, rwLock));
+            Thread workerThread = new Thread(
+                new DumpThread(
+                    buffer, count, fillValues, indexMap,
+                    queue, rwLock, timeArray
+                ));
 
 			workerThread.start();
 			workerThreads.add(workerThread);
 		}
 
-        /**
-         * compute variable ranges
-         */
-
-        int timeIndex = 0;
+        // compute variable ranges
+        int timeOffset = 0;
         while (true) {
             // compute size of time buffer
             int bufferSize = Math.min(this.bufferSize,
-                (int) timeArray.getSize() - timeIndex);
+                timeArray.length - timeOffset);
 
             // if no more items -> break
             if (bufferSize == 0) {
@@ -161,7 +178,7 @@ public class DumpCommand implements Callable<Integer> {
             }
 
             // read into buffer
-            int[] origin = new int[]{timeIndex, 0, 0};
+            int[] origin = new int[]{timeOffset, 0, 0};
             int[] section = new int[]{bufferSize,
                 latitudeLength, longitudeLength};
 
@@ -190,7 +207,7 @@ public class DumpCommand implements Callable<Integer> {
             // add evaluation operands
             for (int i = 0; i < bufferSize; i++) {
                 for (String shapeId : indexMap.keySet()) {
-                    queue.add(new DumpOperand(shapeId, i));
+                    queue.add(new DumpOperand(shapeId, timeOffset, i));
                     count.incrementAndGet();
                 }
             }
@@ -200,8 +217,8 @@ public class DumpCommand implements Callable<Integer> {
                 Thread.sleep(50);
             }
 
-            // increment timeIndex
-            timeIndex += bufferSize;
+            // increment time offset
+            timeOffset += bufferSize;
         }
 
         // stop worker threads
