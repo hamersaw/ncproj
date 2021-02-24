@@ -14,7 +14,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class IndexingThread implements Runnable {
+public class IndexThread implements Runnable {
     protected AtomicLong count;
     protected HashMap<String, ArrayList<int[]>> indexMap;
     protected Array latitudeArray;
@@ -22,10 +22,10 @@ public class IndexingThread implements Runnable {
     protected float latitudeDelta;
     protected float longitudeDelta;
     protected MongoCollection mongoCollection;
-    protected ReentrantReadWriteLock rwLock;
     protected LinkedBlockingQueue<int[]> queue;
+    protected ReentrantReadWriteLock rwLock;
 
-    public IndexingThread(AtomicLong count,
+    public IndexThread(AtomicLong count,
             HashMap<String, ArrayList<int[]>> indexMap,
             Array latitudeArray, Array longitudeArray,
             MongoCollection mongoCollection,
@@ -44,9 +44,9 @@ public class IndexingThread implements Runnable {
 
         this.mongoCollection = mongoCollection;
 
-        this.rwLock = rwLock;
-
         this.queue = queue;
+
+        this.rwLock = rwLock;
     }
 
     @Override
@@ -99,6 +99,7 @@ public class IndexingThread implements Runnable {
                     }
                 }
 
+                // decrement active count
                 count.decrementAndGet();
             }
         } catch (InterruptedException e) {}

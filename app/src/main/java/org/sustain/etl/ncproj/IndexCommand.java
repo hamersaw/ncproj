@@ -34,9 +34,9 @@ public class IndexCommand implements Callable<Integer> {
     @Parameters(index = "2", description = "netcdf file")
     private File netcdfFile;
 
-    @Option(names = {"-i", "--indexing-threads"},
+    @Option(names = {"-t", "--thread-count"},
         description = "number of threads for indexing the netcdf file")
-    private short indexThreads = 8;
+    private short threadCount = 8;
 
     @Option(names = {"-o", "--host"}, description = "mongodb host")
     protected static String mongoHost = "127.0.0.1";
@@ -64,18 +64,18 @@ public class IndexCommand implements Callable<Integer> {
         MongoCollection mongoCollection = 
             mongoDatabase.getCollection(this.mongoCollection);
 
-		// start indexing threads
-		ArrayList<Thread> indexingThreads = new ArrayList();
+		// start index threads
+		ArrayList<Thread> workerThreads = new ArrayList();
 		LinkedBlockingQueue<int[]> queue = new LinkedBlockingQueue();
 		AtomicLong count = new AtomicLong(0);
 
-		for (int i = 0; i < this.indexThreads; i++) {
-            Thread indexingThread = new Thread(
-                new IndexingThread(count, indexMap, latitudeArray,
+		for (int i = 0; i < this.threadCount; i++) {
+            Thread workerThread = new Thread(
+                new IndexThread(count, indexMap, latitudeArray,
                     longitudeArray, mongoCollection, queue, rwLock));
 
-			indexingThread.start();
-			indexingThreads.add(indexingThread);
+			workerThread.start();
+			workerThreads.add(workerThread);
 		}
 
         // add all index pairs to indexing queue
@@ -86,14 +86,14 @@ public class IndexCommand implements Callable<Integer> {
 			}
 		}
 
-		// wait for indexing threads to complete
+		// wait for index threads to complete
 		while (count.get() != 0) {
 			Thread.sleep(50);
 		}
 
-		// stop indexing threads
-		for (Thread indexingThread : indexingThreads) {
-			indexingThread.interrupt();
+		// stop index threads
+		for (Thread workerThread : workerThreads) {
+			workerThread.interrupt();
 		}
 
         // write index to stdout

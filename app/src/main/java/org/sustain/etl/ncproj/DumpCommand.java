@@ -5,6 +5,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 import ucar.ma2.Array;
+import ucar.nc2.Attribute;
 import ucar.nc2.Dimension;
 import ucar.nc2.NetcdfFile;
 import ucar.nc2.Variable;
@@ -16,8 +17,11 @@ import java.lang.Math;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.TreeMap;
+import java.util.HashMap;
 import java.util.concurrent.Callable;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 @Command(name = "dump", mixinStandardHelpOptions = true,
     description = "reproject netcdf data using grid index")
@@ -32,6 +36,10 @@ public class DumpCommand implements Callable<Integer> {
         description = "time buffer size")
     private int bufferSize = 50;
 
+    @Option(names = {"-t", "--thread-count"},
+        description = "number of threads for dumping the netcdf file")
+    private short threadCount = 8;
+
     @Override
     public Integer call() throws Exception {
         /**
@@ -43,7 +51,7 @@ public class DumpCommand implements Callable<Integer> {
         BufferedReader in = new BufferedReader(fileIn);
 
         // read index entries
-        TreeMap<String, ArrayList<int[]>> indexMap = new TreeMap();
+        HashMap<String, ArrayList<int[]>> indexMap = new HashMap();
         String line = null;
         while ((line = in.readLine()) != null) {
             String[] fields = line.split(" ");
@@ -73,6 +81,7 @@ public class DumpCommand implements Callable<Integer> {
          */
 
         ArrayList<ArrayList<String>> variables = new ArrayList();
+        ArrayList<Float> fillValues = new ArrayList();
         Array timeArray = null;
         int latitudeLength = 0;
         int longitudeLength = 0;
@@ -107,30 +116,44 @@ public class DumpCommand implements Callable<Integer> {
             for (Variable variable : netcdfFile.getVariables()) {
                 if (!dimensions.contains(variable.getShortName())) {
                     arrayList.add(variable.getShortName());
+
+                    Attribute attribute =
+                        variable.findAttribute("_FillValue");
+                    fillValues.add(attribute.getNumericValue().floatValue());
                 }
             }
 
             variables.add(arrayList);
         }
 
-        /*// TODO - tmp print variables
-        for (String variable : variables) {
-            System.out.println(variable);
-        }*/
+        /**
+         * start worker threads
+         */
+
+        ArrayList<Array> buffer = new ArrayList();
+		AtomicLong count = new AtomicLong(0);
+		ArrayList<Thread> workerThreads = new ArrayList();
+		LinkedBlockingQueue<DumpOperand> queue =
+            new LinkedBlockingQueue();
+        ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
+
+		for (int i = 0; i < this.threadCount; i++) {
+            Thread workerThread = new Thread(new DumpThread(
+                buffer, count, fillValues, indexMap, queue, rwLock));
+
+			workerThread.start();
+			workerThreads.add(workerThread);
+		}
 
         /**
          * compute variable ranges
          */
 
-        ArrayList<Array> buffer = new ArrayList();
         int timeIndex = 0;
-
         while (true) {
             // compute size of time buffer
             int bufferSize = Math.min(this.bufferSize,
                 (int) timeArray.getSize() - timeIndex);
-
-            System.out.println(timeIndex + " " + bufferSize);
 
             // if no more items -> break
             if (bufferSize == 0) {
@@ -142,36 +165,48 @@ public class DumpCommand implements Callable<Integer> {
             int[] section = new int[]{bufferSize,
                 latitudeLength, longitudeLength};
 
-            buffer.clear();
-            for (int i = 0; i < this.netcdfFiles.length; i++) {
-                // open netcdf file
-                NetcdfFile netcdfFile =
-                    NetcdfFile.open(this.netcdfFiles[i].getPath());
+            rwLock.writeLock().lock();
+            try {
+                buffer.clear();
+                for (int i = 0; i < this.netcdfFiles.length; i++) {
+                    // open netcdf file
+                    NetcdfFile netcdfFile =
+                        NetcdfFile.open(this.netcdfFiles[i].getPath());
 
-                // iterate over file variables
-                for (String variableName : variables.get(i)) {
-                    Variable variable =
-                        netcdfFile.findVariable(variableName);
+                    // iterate over file variables
+                    for (String variableName : variables.get(i)) {
+                        Variable variable =
+                            netcdfFile.findVariable(variableName);
 
-                    /*int[] shape = variable.getShapeAll();
-                    System.out.print("[");
-                    for (int dimension : shape) {
-                        System.out.print(" " + dimension);
+                        // read section of variable
+                        Array array = variable.read(origin, section);
+                        buffer.add(array);
                     }
-                    System.out.println(" ]");*/
+                }
+            } finally {
+                rwLock.writeLock().unlock();
+            }
 
-                    Array array = variable.read(origin, section);
-                    /*System.out.println("  " + variableName
-                        + " : " + array.getSize());*/
-
-                    buffer.add(array);
+            // add evaluation operands
+            for (int i = 0; i < bufferSize; i++) {
+                for (String shapeId : indexMap.keySet()) {
+                    queue.add(new DumpOperand(shapeId, i));
+                    count.incrementAndGet();
                 }
             }
 
-            // TODO - compute values
+            // wait for worker threads to complete
+            while (count.get() != 0) {
+                Thread.sleep(50);
+            }
 
             // increment timeIndex
             timeIndex += bufferSize;
+        }
+
+        // stop worker threads
+        for (Thread workerThread : workerThreads) {
+            workerThread.interrupt();
         }
 
         return 0;
