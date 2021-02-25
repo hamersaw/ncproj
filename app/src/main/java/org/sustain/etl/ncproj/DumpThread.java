@@ -41,7 +41,7 @@ public class DumpThread implements Runnable {
                 DumpOperand operand = queue.take();
 
                 int timeIndex = operand.getTimeOffset()
-                    + operand.getTimeIndex()
+                    + operand.getTimeIndex();
                 String line = operand.getShapeId()
                     + "," + timeArray[timeIndex];
 
